@@ -149,4 +149,142 @@ For the selected positive snowfall amounts, the distributions are fairly similar
 
 ## Problem 2: NHANES activity
 
+### Organizing the data
+
+The demographic file begins with four lines of coding notes. I skip those lines, retain all five demographic variables, and use the file's definitions to label sex and education. Education is ordered from less than high school to more than high school. Age and BMI remain numeric, while the participant identifier is character.
+
+```{r nhanes-import}
+nhanes_covar_raw <- read_csv(
+  "data/nhanes_covar.csv",
+  skip = 4,
+  col_types = cols(SEQN = col_character(), .default = col_double())
+) |>
+  rename(seqn = SEQN, bmi = BMI)
+
+nhanes_covar <- nhanes_covar_raw |>
+  filter(age >= 21) |>
+  drop_na() |>
+  mutate(
+    sex = factor(sex, levels = c(1, 2), labels = c("Men", "Women")),
+    education = factor(
+      education,
+      levels = c(1, 2, 3),
+      labels = c("Less than high school", "High school equivalent", "More than high school"),
+      ordered = TRUE
+    )
+  )
+
+nhanes_accel <- read_csv(
+  "data/nhanes_accel.csv",
+  col_types = cols(SEQN = col_character(), .default = col_double())
+) |>
+  rename(seqn = SEQN)
+
+nhanes <- nhanes_covar |>
+  left_join(nhanes_accel, by = "seqn") |>
+  pivot_longer(
+    cols = starts_with("min"),
+    names_to = "minute",
+    names_prefix = "min",
+    values_to = "mims"
+  ) |>
+  mutate(
+    minute = as.integer(minute),
+    hour = (minute - 1) / 60
+  )
+```
+
+Of the original `r nrow(nhanes_covar_raw)` participants, `r sum(nhanes_covar_raw$age < 21)` are younger than 21. Among the remaining adults, `r sum(nhanes_covar_raw$age >= 21) - nrow(nhanes_covar)` have missing demographic data, leaving **`r nrow(nhanes_covar)` participants**. I exclude missing BMI as well as missing sex, age, or education. Both input files have one row per participant and matching IDs, and there are no missing accelerometer values. The final long table has `r format(nrow(nhanes), big.mark = ",")` rows and `r ncol(nhanes)` columns: one row per participant-minute. It preserves the original demographic fields and every minute's activity value. Minute 1 begins at midnight, so it maps to hour 0 rather than 1/60.
+
+### Education, sex, and age
+
+I count people in the demographic table, where each participant appears once. Counting the long table would inflate every group by 1,440.
+
+```{r nhanes-demographic-table}
+education_counts <- nhanes_covar |>
+  count(education, sex) |>
+  pivot_wider(names_from = sex, values_from = n, values_fill = 0) |>
+  mutate(Total = Men + Women)
+
+education_counts |>
+  knitr::kable(col.names = c("Education", "Men", "Women", "Total"))
+```
+
+The largest group has more than a high school education (115 people), about half the retained sample. Men and women have similar counts in that group and in the less-than-high-school group. The high-school-equivalent group has more men than women (35 versus 23), so its sex-specific patterns are based on unequal sample sizes.
+
+```{r nhanes-age, fig.width=11, fig.height=5}
+sex_colors <- c("Men" = "#25658A", "Women" = "#C76824")
+
+nhanes_covar |>
+  ggplot(aes(x = sex, y = age, color = sex)) +
+  geom_boxplot(width = 0.45, outlier.shape = NA, linewidth = 0.6) +
+  geom_point(
+    position = position_jitter(width = 0.12, height = 0, seed = 8105),
+    alpha = 0.5, size = 1.5
+  ) +
+  facet_grid(~ education, labeller = label_wrap_gen(width = 21)) +
+  scale_color_manual(values = sex_colors) +
+  labs(title = "Age distributions in the retained sample", x = NULL, y = "Age (years)") +
+  theme(legend.position = "none")
+```
+
+Participants with more than high school education tend to be younger: their median ages are 43.5 for men and 41 for women, versus 60 and 61 in the less-than-high-school group. In the high-school-equivalent group, the median age is higher for women (62 versus 53 for men), although the distributions overlap widely. All six groups span a broad range of adult ages. This age imbalance matters when interpreting activity differences across education or sex.
+
+### Total activity and age
+
+I sum the 1,440 minute-level MIMS values for each person to obtain total daily activity. No minutes are missing, so no imputation or missing-value removal is needed in this sum.
+
+```{r nhanes-total, fig.width=11, fig.height=5.3}
+nhanes_total <- nhanes |>
+  group_by(seqn, sex, age, bmi, education) |>
+  summarize(total_activity = sum(mims), .groups = "drop")
+
+nhanes_total |>
+  ggplot(aes(x = age, y = total_activity, color = sex, shape = sex, linetype = sex)) +
+  geom_point(alpha = 0.6, size = 1.7) +
+  geom_smooth(method = "loess", formula = y ~ x, span = 0.9, se = FALSE, linewidth = 0.9) +
+  facet_grid(~ education, labeller = label_wrap_gen(width = 21)) +
+  scale_color_manual(values = sex_colors) +
+  scale_y_continuous(labels = scales::label_comma()) +
+  scale_x_continuous(breaks = seq(20, 80, 20)) +
+  labs(
+    title = "Total daily activity and age",
+    x = "Age (years)", y = "Total daily activity (MIMS)",
+    color = "Sex", shape = "Sex", linetype = "Sex"
+  ) +
+  theme(legend.position = "bottom")
+```
+
+Total activity generally decreases with age in each education group, with considerable variation among people of the same age. The decrease looks especially pronounced in the less-than-high-school group. Women tend to have higher totals than men in the more-than-high-school group, while the ordering is less consistent in the other panels. There are also a few unusually active individuals, which is a reason to read the smooth curves together with the points. These curves are descriptive and can be unstable near the ends of the age range; they do not adjust for BMI or other differences between participants.
+
+### Activity over the day
+
+To compare the time courses without drawing 228 overlapping individual traces, I first average activity at each minute within education and sex. Everyone has a complete day, so participants have equal weight in each minute's mean. The thin traces show these means; the heavier curves smooth the same means over roughly a few hours.
+
+```{r nhanes-time-course, fig.width=11, fig.height=5.2}
+activity_time <- nhanes |>
+  group_by(education, sex, minute, hour) |>
+  summarize(mean_mims = mean(mims), .groups = "drop")
+
+activity_time |>
+  ggplot(aes(x = hour, y = mean_mims, color = sex, linetype = sex)) +
+  geom_line(alpha = 0.35, linewidth = 0.3) +
+  geom_smooth(method = "loess", formula = y ~ x, span = 0.12, se = FALSE, linewidth = 1) +
+  facet_grid(~ education, labeller = label_wrap_gen(width = 21)) +
+  scale_color_manual(values = sex_colors) +
+  scale_x_continuous(
+    limits = c(0, 24),
+    breaks = c(0, 6, 12, 18, 24),
+    labels = c("00:00", "06:00", "12:00", "18:00", "24:00")
+  ) +
+  labs(
+    title = "Mean minute-level activity across the day",
+    x = "Time of day", y = "Mean activity (MIMS per minute)",
+    color = "Sex", linetype = "Sex"
+  ) +
+  theme(legend.position = "bottom", axis.text.x = element_text(size = 10))
+```
+
+All groups show low activity overnight, an increase in the morning, sustained daytime activity, and a decline in the evening. The largest sex separation appears in the more-than-high-school group, where women's daytime mean activity is generally higher. The high-school-equivalent group has more overlap, and differences in the less-than-high-school group change over the day rather than showing one sex consistently above the other. These are group averages, so they hide individual schedules. They also reflect the age mix shown above. Without survey weights or adjustment, I would describe these as patterns in the supplied sample rather than population estimates or causal effects of education.
+
 ## Problem 3: Citi Bike
