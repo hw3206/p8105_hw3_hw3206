@@ -275,17 +275,17 @@ activity_time |>
   scale_x_continuous(
     limits = c(0, 24),
     breaks = c(0, 6, 12, 18, 24),
-    labels = c("00:00", "06:00", "12:00", "18:00", "24:00")
+    labels = c("0", "6", "12", "18", "24")
   ) +
   labs(
     title = "Mean minute-level activity across the day",
-    x = "Time of day", y = "Mean activity (MIMS per minute)",
+    x = "Hour of day (0 = midnight)", y = "Mean activity (MIMS per minute)",
     color = "Sex", linetype = "Sex"
   ) +
   theme(legend.position = "bottom", axis.text.x = element_text(size = 10))
 ```
 
-All groups show low activity overnight, an increase in the morning, sustained daytime activity, and a decline in the evening. The largest sex separation appears in the more-than-high-school group, where women's daytime mean activity is generally higher. The high-school-equivalent group has more overlap, and differences in the less-than-high-school group change over the day rather than showing one sex consistently above the other. These are group averages, so they hide individual schedules. They also reflect the age mix shown above. Without survey weights or adjustment, I would describe these as patterns in the supplied sample rather than population estimates or causal effects of education.
+All groups show low activity overnight, an increase in the morning, sustained daytime activity, and a decline in the evening. The largest sex separation appears in the more-than-high-school group, where women's daytime mean activity is generally higher. Women also have higher daytime means in the high-school-equivalent group, though the curves overlap more. Differences in the less-than-high-school group change over the day rather than showing one sex consistently above the other. These are group averages, so they hide individual schedules. They also reflect the age mix shown above. Without survey weights or adjustment, I would describe these as patterns in the supplied sample rather than population estimates or causal effects of education.
 
 ## Problem 3: Citi Bike
 
