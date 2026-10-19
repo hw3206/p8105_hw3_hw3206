@@ -1,0 +1,24 @@
+---
+title: "Homework 3"
+author: "Harrison Wei (hw3206)"
+output: github_document
+---
+
+```{r setup, message=FALSE}
+library(tidyverse)
+library(p8105.datasets)
+library(patchwork)
+
+knitr::opts_chunk$set(
+  fig.width = 10,
+  fig.height = 5,
+  out.width = "100%"
+)
+theme_set(theme_minimal(base_size = 12))
+```
+
+## Problem 1: New York weather
+
+## Problem 2: NHANES activity
+
+## Problem 3: Citi Bike
